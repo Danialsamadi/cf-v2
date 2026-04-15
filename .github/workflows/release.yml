@@ -77,13 +77,18 @@ jobs:
           $env:PATH = "$msys2\mingw64\bin;" + $env:PATH
           go build -ldflags="-s -w -H windowsgui" -o "${{ matrix.artifact_name }}" .
 
+      # CGO must use CLANGARM64's clang — a stray x86_64 `gcc`/`as` on PATH (e.g. Git) will
+      # try to assemble gcc_arm64.S as Intel and fail with "no such instruction: stp".
       - name: Build Binary (Windows arm64)
         if: matrix.runs-on == 'windows-11-arm'
         env:
           CGO_ENABLED: '1'
         run: |
           $msys2 = "${{ steps['msys2-win-arm64'].outputs['msys2-location'] }}"
-          $env:PATH = "$msys2\clangarm64\bin;" + $env:PATH
+          $bin = Join-Path $msys2 "clangarm64\bin"
+          $env:PATH = "$bin;" + $env:PATH
+          $env:CC = Join-Path $bin "clang.exe"
+          $env:CXX = Join-Path $bin "clang++.exe"
           go build -ldflags="-s -w -H windowsgui" -o "${{ matrix.artifact_name }}" .
 
       - name: Build Binary (Linux / macOS)
