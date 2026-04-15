@@ -46,6 +46,7 @@ jobs:
           sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
 
       - name: Set up MSYS2 (Windows amd64)
+        id: msys2-win-amd64
         if: matrix.runs-on == 'windows-latest'
         uses: msys2/setup-msys2@v2
         with:
@@ -54,6 +55,7 @@ jobs:
           install: mingw-w64-x86_64-gcc mingw-w64-x86_64-pkg-config
 
       - name: Set up MSYS2 (Windows arm64)
+        id: msys2-win-arm64
         if: matrix.runs-on == 'windows-11-arm'
         uses: msys2/setup-msys2@v2
         with:
@@ -64,19 +66,25 @@ jobs:
       - name: Download Go Modules
         run: go mod tidy
 
+      # MSYS2 bash does not inherit the PATH from setup-go — use PowerShell so `go` is found,
+      # and prepend the MSYS2 toolchain bin dir so CGO finds gcc/clang.
       - name: Build Binary (Windows amd64)
         if: matrix.runs-on == 'windows-latest'
-        shell: msys2 {0}
         env:
           CGO_ENABLED: '1'
-        run: go build -ldflags="-s -w -H windowsgui" -o "${{ matrix.artifact_name }}" .
+        run: |
+          $msys2 = "${{ steps['msys2-win-amd64'].outputs['msys2-location'] }}"
+          $env:PATH = "$msys2\mingw64\bin;" + $env:PATH
+          go build -ldflags="-s -w -H windowsgui" -o "${{ matrix.artifact_name }}" .
 
       - name: Build Binary (Windows arm64)
         if: matrix.runs-on == 'windows-11-arm'
-        shell: msys2 {0}
         env:
           CGO_ENABLED: '1'
-        run: go build -ldflags="-s -w -H windowsgui" -o "${{ matrix.artifact_name }}" .
+        run: |
+          $msys2 = "${{ steps['msys2-win-arm64'].outputs['msys2-location'] }}"
+          $env:PATH = "$msys2\clangarm64\bin;" + $env:PATH
+          go build -ldflags="-s -w -H windowsgui" -o "${{ matrix.artifact_name }}" .
 
       - name: Build Binary (Linux / macOS)
         if: runner.os != 'Windows'
