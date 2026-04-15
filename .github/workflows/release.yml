@@ -8,48 +8,87 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.artifact_name }}
+    runs-on: ${{ matrix.runs-on }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        
+        include:
+          # Linux — x64 and ARM64 (native Fyne/CGO builds)
+          - runs-on: ubuntu-24.04
+            artifact_name: cf-v2-linux-amd64
+          - runs-on: ubuntu-24.04-arm
+            artifact_name: cf-v2-linux-arm64
+          # Windows — x64 and ARM64
+          - runs-on: windows-latest
+            artifact_name: cf-v2-windows-amd64.exe
+          - runs-on: windows-11-arm
+            artifact_name: cf-v2-windows-arm64.exe
+          # macOS — Intel and Apple Silicon (native arch each)
+          - runs-on: macos-15-intel
+            artifact_name: cf-v2-darwin-amd64
+          - runs-on: macos-latest
+            artifact_name: cf-v2-darwin-arm64
+
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Go 1.21
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          
-      - name: Install Dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
+
+      - name: Install Dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
 
+      - name: Set up MSYS2 (Windows amd64)
+        if: matrix.runs-on == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-pkg-config
+
+      - name: Set up MSYS2 (Windows arm64)
+        if: matrix.runs-on == 'windows-11-arm'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: CLANGARM64
+          update: true
+          install: mingw-w64-clang-aarch64-toolchain
+
       - name: Download Go Modules
         run: go mod tidy
 
-      - name: Build Binary (Windows)
-        if: matrix.os == 'windows-latest'
-        # -H windowsgui hides the background console on Windows
-        run: go build -ldflags="-s -w -H windowsgui" -o cf-v2-windows-amd64.exe .
+      - name: Build Binary (Windows amd64)
+        if: matrix.runs-on == 'windows-latest'
+        shell: msys2 {0}
+        env:
+          CGO_ENABLED: '1'
+        run: go build -ldflags="-s -w -H windowsgui" -o "${{ matrix.artifact_name }}" .
 
-      - name: Build Binary (macOS)
-        if: matrix.os == 'macos-latest'
-        run: go build -ldflags="-s -w" -o cf-v2-darwin-amd64 .
+      - name: Build Binary (Windows arm64)
+        if: matrix.runs-on == 'windows-11-arm'
+        shell: msys2 {0}
+        env:
+          CGO_ENABLED: '1'
+        run: go build -ldflags="-s -w -H windowsgui" -o "${{ matrix.artifact_name }}" .
 
-      - name: Build Binary (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: go build -ldflags="-s -w" -o cf-v2-linux-amd64 .
+      - name: Build Binary (Linux / macOS)
+        if: runner.os != 'Windows'
+        env:
+          CGO_ENABLED: '1'
+        run: go build -ldflags="-s -w" -o "${{ matrix.artifact_name }}" .
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ matrix.os }}
-          path: cf-v2-*
+          name: binary-${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
 
   release:
     name: Create GitHub Release
